@@ -1,0 +1,112 @@
+#lang sicp
+
+;; 其实a就是基于b中test-and-set!的原子化才能实现的,b的另一种实现是修改
+;; test-and-set!,使其增减p，那种做法更为简单
+
+; b)
+(define (make-semaphore n)
+  (let ((lock (list false)) (q 0))
+    (define (the-semaphore m)
+      (cond ((eq? m 'acquire)
+             (if (test-and-set! lock)
+                 (the-semaphore 'acquire)
+                 (if (< q n)
+                     (begin (set! q (+ q 1))
+                            (clear! lock))
+                     (begin (clear! lock)
+                            (the-semaphore 'acquire)))))
+            ((eq? m 'release)
+             (if (test-and-set! lock)
+                 (the-semaphore 'release)
+                 (begin (set! q (- q 1)) (clear! lock))))))
+    the-semaphore))
+
+; a)
+(define (make-semaphore1 n)
+  (let ((me (make-mutex)) (q 0))
+    (define (the-semaphore m)
+      (cond ((eq? m 'acquire)
+             ((me 'acquire)
+              (if (< q n)
+                  (begin (set! q (+ q 1))
+                         (me 'release))
+                  (begin (me 'release)
+                         (the-semaphore 'acquire)))))
+            ((eq? m 'release)
+             ((me 'acquire)
+              (set! q (- q 1))
+              (me 'release)))))
+    the-semaphore))
+
+(define (make-mutex)
+  (let ((cell (list false)))            
+    (define (the-mutex m)
+      (cond ((eq? m 'acquire)
+             (if (test-and-set! cell)
+                 (the-mutex 'acquire)))
+            ((eq? m 'release) (clear! cell))))
+    the-mutex))
+
+(define (clear! cell)
+  (set-car! cell false))
+
+(define (test-and-set! cell)
+  (if (car cell)
+      true
+      (begin (set-car! cell true)
+             false)))
+
+(define (make-serializer)
+  (let ((mutex (make-mutex)))
+    (lambda (p)
+      (define (serialized-p . args)
+        (mutex 'acquire)
+        (let ((val (apply p args)))
+          (mutex 'release)
+          val))
+      serialized-p)))
+
+;(define (create-mutexes n)
+; (let ((mutexes (make-table)))
+;    (if (= n 0)
+;        mutexes
+;        (begin (insert! n (make-mutex) mutexes)
+;               (create-mutexes (- n 1))))))
+
+;(define (make-semaphore)
+;  (let ((mutexes (create-mutexes 12))
+;        (n 1))
+;    (define (release key)
+;      ((lookup key mutexes) 'release))
+;    (define (the-semaphore m)
+;      (cond ((eq? m 'acquire)
+;             (if (> n 12)
+;                 (begin (set! n 1)
+;                        (the-semaphore 'acquire))
+;                 (begin ((lookup n mutexes) 'acquire)
+;                        (set! n (+ n 1))
+;                        n)))
+;            ((eq? m 'release) release)))
+;    the-semaphore))
+
+(define (lookup key table)
+  (let ((record (assoc key (cdr table))))
+    (if record
+        (cdr record)
+        false)))
+
+(define (assoc key records)
+  (cond ((null? records) false)
+        ((equal? key (caar records)) (car records))
+        (else (assoc key (cdr records)))))
+
+(define (insert! key value table)
+  (let ((record (assoc key (cdr table))))
+    (if record
+        (set-cdr! record value)
+        (set-cdr! table
+                  (cons (cons key value) (cdr table)))))
+  'ok)
+
+(define (make-table)
+  (list '*table*))
